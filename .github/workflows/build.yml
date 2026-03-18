@@ -1,32 +1,21 @@
-#=================================================
-# Build Ubuntu Touch for Realme 7 (salaa/RMX2163)
-# Android : 12 (S)
-# Halium  : 12.0
-# Based on: ubuntu-touch-clover/ubports-ci
-#=================================================
-
 name: Build Ubuntu Touch - Realme 7
 
 on:
   push:
     branches: [ master, main ]
-  release:
-    types: [published]
   workflow_dispatch:
 
 jobs:
-
   build:
     runs-on: ubuntu-20.04
     timeout-minutes: 360
 
     env:
-      VENDOR:       realme
-      DEVICE:       salaa
+      VENDOR: realme
+      DEVICE: salaa
       ANDROID_ROOT: /home/runner/work/halium/
 
     steps:
-
     - name: Checkout
       uses: actions/checkout@master
 
@@ -43,11 +32,11 @@ jobs:
     - name: Initialize Environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-11-jdk android-tools-adb bc bison build-essential curl flex g++-multilib gcc-multilib gnupw gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm zip zlib1g-dev git python3 python3-dev python-is-python3 libelf-dev ninja-build ccache
+        sudo apt-get install -y openjdk-11-jdk android-tools-adb bc bison build-essential curl flex g++-multilib gcc-multilib gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm zip zlib1g-dev git python3 python3-dev python-is-python3 libelf-dev ninja-build ccache
         sudo docker rmi $(docker images -q) 2>/dev/null || true
         sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php
         mkdir -p ~/bin
-        wget -q 'https://storage.googleapis.com/git-repo-downloads/repo' -P ~/bin
+        wget -q https://storage.googleapis.com/git-repo-downloads/repo -P ~/bin
         chmod +x ~/bin/repo
         git config --global user.name "Realme7 UBports CI"
         git config --global user.email "ci@realme7.ubports.build"
@@ -61,19 +50,10 @@ jobs:
         cd $ANDROID_ROOT
         ~/bin/repo init -u https://github.com/Halium/android -b halium-12.0 --depth=1
         mkdir -p $ANDROID_ROOT/.repo/local_manifests
-        wget -q https://raw.githubusercontent.com/${{ github.repository_owner }}/local_manifests/main/salaa.xml -O $ANDROID_ROOT/.repo/local_manifests/salaa.xml && echo "Local manifest downloaded" || echo "Using fallback"
+        wget -q https://raw.githubusercontent.com/${{ github.repository_owner }}/local_manifests/main/salaa.xml -O $ANDROID_ROOT/.repo/local_manifests/salaa.xml || true
         if [ ! -s "$ANDROID_ROOT/.repo/local_manifests/salaa.xml" ]; then
-          python3 -c "
-content = '''<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<manifest>
-  <remote name=\"github\" fetch=\"https://github.com/\" review=\"https://github.com/\" />
-  <project name=\"realme-kernel-opensource/realme7_realme8_Narzo30_Narzo20pro-AndroidS-kernel-source\" path=\"kernel/realme/salaa\" remote=\"github\" revision=\"master\" clone-depth=\"1\" />
-  <project name=\"Matrixx-Devices/android_device_realme_salaa\" path=\"device/realme/salaa\" remote=\"github\" revision=\"lineage-20\" clone-depth=\"1\" />
-</manifest>'''
-with open('$ANDROID_ROOT/.repo/local_manifests/salaa.xml', 'w') as f:
-    f.write(content)
-print('Fallback manifest created')
-"
+          echo '<?xml version="1.0" encoding="UTF-8"?><manifest><remote name="github" fetch="https://github.com/" /><project name="realme-kernel-opensource/realme7_realme8_Narzo30_Narzo20pro-AndroidS-kernel-source" path="kernel/realme/salaa" remote="github" revision="master" clone-depth="1" /><project name="Matrixx-Devices/android_device_realme_salaa" path="device/realme/salaa" remote="github" revision="lineage-20" clone-depth="1" /></manifest>' > $ANDROID_ROOT/.repo/local_manifests/salaa.xml
+          echo "Fallback manifest created"
         fi
         ~/bin/repo sync -j8 -c --no-clone-bundle --no-tags
         df -h
@@ -82,11 +62,9 @@ print('Fallback manifest created')
       run: |
         source halium.env
         CONFIG_DIR=$ANDROID_ROOT/kernel/realme/salaa/arch/arm64/configs
-        DEFCONFIG=$(find $CONFIG_DIR -name "*6853*" -o -name "*k419*" 2>/dev/null | head -1 | xargs basename 2>/dev/null)
-        echo "Found defconfig: ${DEFCONFIG:-NOT FOUND}"
-        python3 -c "
-content = '''# Halium 12 Required Kernel Config
-# Realme 7 (salaa) - MT6853 - Android 12
+        DEFCONFIG=$(find $CONFIG_DIR -name "*6853*" -o -name "*k419*" 2>/dev/null | head -1 | xargs basename 2>/dev/null || echo "NOT FOUND")
+        echo "Found defconfig: $DEFCONFIG"
+        cat > $CONFIG_DIR/halium.config << 'HALIUMEOF'
 CONFIG_NAMESPACES=y
 CONFIG_NET_NS=y
 CONFIG_PID_NS=y
@@ -135,14 +113,8 @@ CONFIG_EVENTFD=y
 CONFIG_AIO=y
 CONFIG_PSI=y
 CONFIG_MEMFD_CREATE=y
-'''
-import os
-path = os.environ.get('CONFIG_DIR', '$CONFIG_DIR') + '/halium.config'
-with open(path, 'w') as f:
-    f.write(content)
-print('halium.config created at ' + path)
-"
-        echo "halium.config done"
+HALIUMEOF
+        echo "halium.config created"
 
     - name: Build HAL
       run: |
@@ -177,18 +149,17 @@ print('halium.config created at ' + path)
     - name: Build Summary
       if: always()
       run: |
-        echo "========================================="
+        echo "======================================="
         echo " Build Summary - Realme 7 Ubuntu Touch"
-        echo " Device  : salaa (RMX2163)"
-        echo " Android : 12 (S) / Halium 12.0"
-        echo "========================================="
+        echo " Device: salaa (RMX2163) - Android 12"
+        echo "======================================="
         OUT=${{ env.ANDROID_ROOT }}/out/target/product/salaa
         for img in halium-boot.img system.img vendor.img; do
           if [ -f "$OUT/$img" ]; then
             SIZE=$(du -sh $OUT/$img | cut -f1)
-            echo "OK $img ($SIZE)"
+            echo "OK: $img ($SIZE)"
           else
-            echo "MISSING $img"
+            echo "MISSING: $img"
           fi
         done
-        echo "========================================="
+        echo "======================================="
