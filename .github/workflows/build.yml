@@ -9,10 +9,10 @@ name: Build Ubuntu Touch - Realme 7
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main ]
   release:
     types: [published]
-  workflow_dispatch:  # ← تشغيل يدوي بضغطة زر
+  workflow_dispatch:
 
 jobs:
 
@@ -27,153 +27,66 @@ jobs:
 
     steps:
 
-    # -----------------------------------------------
-    - name: 📥 Checkout
-    # -----------------------------------------------
+    - name: Checkout
       uses: actions/checkout@master
 
-    # -----------------------------------------------
-    - name: 🧹 Cleanup Disk
-    # -----------------------------------------------
+    - name: Cleanup Disk
       uses: HandsomeYingyan/cleanup-disk-action@v3.0
 
-    # -----------------------------------------------
-    - name: 💾 Maximize Build Space
-    # -----------------------------------------------
+    - name: Maximize Build Space
       uses: easimon/maximize-build-space@master
       with:
         root-reserve-mb: 2048
         swap-size-mb: 8192
         build-mount-path: ${{ env.ANDROID_ROOT }}
 
-    # -----------------------------------------------
-    - name: 🛠️ Initialize Environment
-    # -----------------------------------------------
+    - name: Initialize Environment
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          openjdk-11-jdk android-tools-adb bc \
-          bison build-essential curl flex \
-          g++-multilib gcc-multilib gnupg gperf \
-          imagemagick lib32ncurses5-dev \
-          lib32readline-dev lib32z1-dev \
-          liblz4-tool libncurses5-dev \
-          libsdl1.2-dev libssl-dev \
-          libxml2 libxml2-utils lzop \
-          pngcrush rsync schedtool \
-          squashfs-tools xsltproc yasm \
-          zip zlib1g-dev git \
-          python3 python3-dev \
-          python-is-python3 \
-          libelf-dev ninja-build \
-          ccache
-
-        # تنظيف Docker لتوفير مساحة
+        sudo apt-get install -y openjdk-11-jdk android-tools-adb bc bison build-essential curl flex g++-multilib gcc-multilib gnupw gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc yasm zip zlib1g-dev git python3 python3-dev python-is-python3 libelf-dev ninja-build ccache
         sudo docker rmi $(docker images -q) 2>/dev/null || true
         sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php
-
-        # تثبيت repo tool
         mkdir -p ~/bin
-        wget -q 'https://storage.googleapis.com/git-repo-downloads/repo' \
-          -P ~/bin
+        wget -q 'https://storage.googleapis.com/git-repo-downloads/repo' -P ~/bin
         chmod +x ~/bin/repo
-
-        # إعداد Git
-        git config --global user.name  "Realme7 UBports CI"
+        git config --global user.name "Realme7 UBports CI"
         git config --global user.email "ci@realme7.ubports.build"
         git config --global color.ui false
-
-        # إنشاء مجلد البناء
         mkdir -p ${{ env.ANDROID_ROOT }}
-
-        echo "=== Disk space ==="
         df -h
 
-    # -----------------------------------------------
-    - name: 📦 Download Halium 12 Source
-    # -----------------------------------------------
+    - name: Download Halium 12 Source
       run: |
         source halium.env
         cd $ANDROID_ROOT
-
-        # تهيئة Halium 12.0 ← محدّث من 11.0
-        ~/bin/repo init \
-          -u https://github.com/Halium/android \
-          -b halium-12.0 \
-          --depth=1
-
-        # تنزيل local manifest
+        ~/bin/repo init -u https://github.com/Halium/android -b halium-12.0 --depth=1
         mkdir -p $ANDROID_ROOT/.repo/local_manifests
-        wget -q \
-          https://raw.githubusercontent.com/${{ github.repository_owner }}/local_manifests/main/salaa.xml \
-          -O $ANDROID_ROOT/.repo/local_manifests/salaa.xml \
-          && echo "✅ Local manifest downloaded" \
-          || echo "⚠️ Using fallback manifest"
-
-        # fallback manifest إذا لم يتوفر الرابط
+        wget -q https://raw.githubusercontent.com/${{ github.repository_owner }}/local_manifests/main/salaa.xml -O $ANDROID_ROOT/.repo/local_manifests/salaa.xml && echo "Local manifest downloaded" || echo "Using fallback"
         if [ ! -s "$ANDROID_ROOT/.repo/local_manifests/salaa.xml" ]; then
-          cat > $ANDROID_ROOT/.repo/local_manifests/salaa.xml << 'XMLEOF'
-<?xml version="1.0" encoding="UTF-8"?>
+          python3 -c "
+content = '''<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <manifest>
-  <remote name="github"
-          fetch="https://github.com/"
-          review="https://github.com/" />
-
-  <!-- Kernel Android 12 (S) من Realme الرسمي ← محدّث -->
-  <project
-    name="realme-kernel-opensource/realme7_realme8_Narzo30_Narzo20pro-AndroidS-kernel-source"
-    path="kernel/realme/salaa"
-    remote="github"
-    revision="master"
-    clone-depth="1" />
-
-  <!-- Device Tree يدعم RMX2163 ✅ -->
-  <project
-    name="Matrixx-Devices/android_device_realme_salaa"
-    path="device/realme/salaa"
-    remote="github"
-    revision="lineage-20"
-    clone-depth="1" />
-</manifest>
-XMLEOF
-          echo "✅ Fallback manifest created"
+  <remote name=\"github\" fetch=\"https://github.com/\" review=\"https://github.com/\" />
+  <project name=\"realme-kernel-opensource/realme7_realme8_Narzo30_Narzo20pro-AndroidS-kernel-source\" path=\"kernel/realme/salaa\" remote=\"github\" revision=\"master\" clone-depth=\"1\" />
+  <project name=\"Matrixx-Devices/android_device_realme_salaa\" path=\"device/realme/salaa\" remote=\"github\" revision=\"lineage-20\" clone-depth=\"1\" />
+</manifest>'''
+with open('$ANDROID_ROOT/.repo/local_manifests/salaa.xml', 'w') as f:
+    f.write(content)
+print('Fallback manifest created')
+"
         fi
-
-        # مزامنة الـ source
-        echo ">>> Syncing source (this takes 1-2 hours)..."
-        ~/bin/repo sync \
-          -j8 \
-          -c \
-          --no-clone-bundle \
-          --no-tags
-
-        echo "=== Disk space after sync ==="
+        ~/bin/repo sync -j8 -c --no-clone-bundle --no-tags
         df -h
 
-    # -----------------------------------------------
-    - name: ⚙️ Apply Halium Kernel Config
-    # -----------------------------------------------
+    - name: Apply Halium Kernel Config
       run: |
         source halium.env
-        KERNEL_DIR=$ANDROID_ROOT/kernel/realme/salaa
-        CONFIG_DIR=$KERNEL_DIR/arch/arm64/configs
-
-        # البحث عن defconfig الصحيح
-        DEFCONFIG=$(find $CONFIG_DIR \
-          -name "*6853*" -o -name "*k419*" \
-          2>/dev/null | head -1 | xargs basename 2>/dev/null)
-
+        CONFIG_DIR=$ANDROID_ROOT/kernel/realme/salaa/arch/arm64/configs
+        DEFCONFIG=$(find $CONFIG_DIR -name "*6853*" -o -name "*k419*" 2>/dev/null | head -1 | xargs basename 2>/dev/null)
         echo "Found defconfig: ${DEFCONFIG:-NOT FOUND}"
-
-        # إنشاء halium.config لـ Android 12
-        cat > $CONFIG_DIR/halium.config << 'EOF'
-# ==============================
-# Halium 12 Required Kernel Config
-# Realme 7 (salaa) — MT6853
-# Android 12 (S)
-# ==============================
-
-# Namespaces
+        python3 -c "
+content = '''# Halium 12 Required Kernel Config
+# Realme 7 (salaa) - MT6853 - Android 12
 CONFIG_NAMESPACES=y
 CONFIG_NET_NS=y
 CONFIG_PID_NS=y
@@ -181,8 +94,6 @@ CONFIG_IPC_NS=y
 CONFIG_UTS_NS=y
 CONFIG_USER_NS=y
 CONFIG_SYSVIPC=y
-
-# Cgroups
 CONFIG_CGROUPS=y
 CONFIG_CGROUP_FREEZER=y
 CONFIG_CGROUP_DEVICE=y
@@ -192,8 +103,6 @@ CONFIG_CPUSETS=y
 CONFIG_MEMCG=y
 CONFIG_MEMCG_SWAP=y
 CONFIG_BLK_CGROUP=y
-
-# Security
 CONFIG_SECURITY=y
 CONFIG_SECURITY_APPARMOR=y
 CONFIG_DEFAULT_SECURITY_APPARMOR=y
@@ -201,8 +110,6 @@ CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y
 CONFIG_AUDIT=y
 CONFIG_SECURITYFS=y
-
-# Filesystem
 CONFIG_DEVTMPFS=y
 CONFIG_DEVTMPFS_MOUNT=y
 CONFIG_TMPFS_POSIX_ACL=y
@@ -211,8 +118,6 @@ CONFIG_EXT4_FS=y
 CONFIG_EXT4_FS_POSIX_ACL=y
 CONFIG_EXT4_FS_SECURITY=y
 CONFIG_FHANDLE=y
-
-# Network
 CONFIG_NET=y
 CONFIG_UNIX=y
 CONFIG_INET=y
@@ -220,37 +125,32 @@ CONFIG_IPV6=y
 CONFIG_NETFILTER=y
 CONFIG_NETFILTER_ADVANCED=y
 CONFIG_NF_CONNTRACK=y
-
-# Ubuntu Touch LXC
 CONFIG_ANDROID_PARANOID_NETWORK=n
 CONFIG_ANDROID_BINDER_IPC=y
-CONFIG_ANDROID_BINDER_DEVICES="binder,hwbinder,vndbinder"
 CONFIG_ASHMEM=y
-
-# Events
 CONFIG_EPOLL=y
 CONFIG_SIGNALFD=y
 CONFIG_TIMERFD=y
 CONFIG_EVENTFD=y
 CONFIG_AIO=y
-
-# Android 12 specific
 CONFIG_PSI=y
 CONFIG_MEMFD_CREATE=y
-EOF
-        echo "✅ halium.config created"
+'''
+import os
+path = os.environ.get('CONFIG_DIR', '$CONFIG_DIR') + '/halium.config'
+with open(path, 'w') as f:
+    f.write(content)
+print('halium.config created at ' + path)
+"
+        echo "halium.config done"
 
-    # -----------------------------------------------
-    - name: 🔨 Build HAL
-    # -----------------------------------------------
+    - name: Build HAL
       run: |
         chmod +x build-hal.sh
         bash -x build-hal.sh
       shell: bash
 
-    # -----------------------------------------------
-    - name: 📤 Upload halium-boot.img
-    # -----------------------------------------------
+    - name: Upload halium-boot.img
       if: always()
       uses: actions/upload-artifact@master
       with:
@@ -258,9 +158,7 @@ EOF
         path: ${{ env.ANDROID_ROOT }}/out/target/product/salaa/halium-boot.img
         retention-days: 30
 
-    # -----------------------------------------------
-    - name: 📤 Upload system.img
-    # -----------------------------------------------
+    - name: Upload system.img
       if: always()
       uses: actions/upload-artifact@master
       with:
@@ -268,9 +166,7 @@ EOF
         path: ${{ env.ANDROID_ROOT }}/out/target/product/salaa/system.img
         retention-days: 30
 
-    # -----------------------------------------------
-    - name: 📤 Upload vendor.img
-    # -----------------------------------------------
+    - name: Upload vendor.img
       if: always()
       uses: actions/upload-artifact@master
       with:
@@ -278,25 +174,21 @@ EOF
         path: ${{ env.ANDROID_ROOT }}/out/target/product/salaa/vendor.img
         retention-days: 30
 
-    # -----------------------------------------------
-    - name: 📋 Build Summary
-    # -----------------------------------------------
+    - name: Build Summary
       if: always()
       run: |
-        echo "================================================="
-        echo " Build Summary — Realme 7 Ubuntu Touch"
+        echo "========================================="
+        echo " Build Summary - Realme 7 Ubuntu Touch"
         echo " Device  : salaa (RMX2163)"
-        echo " Android : 12 (S)"
-        echo " Halium  : 12.0"
-        echo "================================================="
+        echo " Android : 12 (S) / Halium 12.0"
+        echo "========================================="
         OUT=${{ env.ANDROID_ROOT }}/out/target/product/salaa
         for img in halium-boot.img system.img vendor.img; do
           if [ -f "$OUT/$img" ]; then
             SIZE=$(du -sh $OUT/$img | cut -f1)
-            MD5=$(md5sum $OUT/$img | cut -d' ' -f1)
-            echo "  ✅ $img | $SIZE | MD5: $MD5"
+            echo "OK $img ($SIZE)"
           else
-            echo "  ❌ $img | NOT FOUND"
+            echo "MISSING $img"
           fi
         done
-        echo "================================================="
+        echo "========================================="
